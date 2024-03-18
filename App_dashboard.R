@@ -14,9 +14,9 @@ ui <- dashboardPage(
         selectInput("gene", "Selectionnez le gène : ", listGene),
         textInput("geneval", "Ou écrivez le :")),
      conditionalPanel(condition = 'input.sidebar == "polya"',
-        selectInput("barcode", "Quel barcode ?", c("bc6", "bc9", "bc10", "bc12"))))
+        selectInput("barcode", "Quel barcode ?", c("bc6", "bc9", "bc10", "bc12")))
      
-    ),
+    )),
   dashboardBody(
     tabItems(
       tabItem(tabName = "uridyl",
@@ -39,13 +39,13 @@ ui <- dashboardPage(
       tabItem(tabName = "reads",
         fluidRow(
          box(title = "Choose a part of the table :", width = 12, conditionalPanel(condition = 'nrow(fbindlist) > 200', sliderInput("intervalReads", "Reads : ", value = valuesInterval, min = 1, max = 5000, width = '100%'))),
-          
-         box(title = "Distribution of reads length :", status = "success", width = 12, solidHeader = TRUE, plotOutput("plotreads")),
-          
-         box(title = "DataTable : ", status = "primary", width = 12, solidHeader = TRUE, dataTableOutput("table"))
+         
+         box(title = "Distribution of reads length :", status = "success", width = 12, solidHeader = TRUE, collapsible = TRUE, plotOutput("plotreads")),
+           
+         box(title = "DataTable : ", status = "primary", width = 12, solidHeader = TRUE, collapsible = TRUE, downloadButton("downloadtable", "Download selected table"), p(""), dataTableOutput("table")))
     ) 
   )
-)))
+))
 
 server = function(input, output, session) {
   reactGDF = reactive({
@@ -124,9 +124,14 @@ server = function(input, output, session) {
         updateSliderInput(session, "intervalReads", value = c(newValuesInterval[2] - INTERVAL, newValuesInterval[2]))
       
       valuesInterval <<- newValuesInterval
-    }
+    })
     
-    )    
+    output$downloadtable = downloadHandler(
+      filename = function(){
+        paste0("datatable:", valuesInterval[1], "-", valuesInterval[2], ".csv")},
+      content = function(file){
+        write.csv(reactTable(), file)}
+    )
   
 }
   
