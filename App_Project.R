@@ -1,10 +1,11 @@
-PATH = "/Users/jroignant/Desktop/Stage_Martin/complete_app/RNAvis/data/data_reduice/FLEPseq_runs"
-listdir = list.dirs(path = PATH, full.names = FALSE ,recursive = FALSE)
-PATHo = "/Users/jroignant/Desktop/Stage_Martin/complete_app/RNAvis/data/data/FLEPseq_runs"
+PATH = "/Users/jroignant/Desktop/Stage_Martin/complete_app/RNAvis/data/data_reduice/FLEPseq_runs"      #path vers les données réduites
+listdir = list.dirs(path = PATH, full.names = FALSE ,recursive = FALSE)                               #list des dossiers dans ce path (list des runs)
+PATHo = "/Users/jroignant/Desktop/Stage_Martin/complete_app/RNAvis/data/data/FLEPseq_runs"            #path vers vraies données
+barcodeCorrespondancePass = c("")
 
 ui <- dashboardPage(skin = "purple",
   
-  dashboardHeader(title = "Project"
+  dashboardHeader(title = "PASS pore"
     
   ),
 #========= Sidebar ===========
@@ -13,17 +14,22 @@ ui <- dashboardPage(skin = "purple",
       menuItem("", tabName = "home", icon = icon("home", style = "color: #9d52ff")),
       menuItem("  .Single Gene Overview", tabName = "single", icon = icon("play", style = "color: #9d52ff")) ,
       menuItem("  .Multiple Genes Overview", tabName = "multiple", icon = icon("forward", style = "color: #9d52ff")) ,
-      menuItem("  .CCR4 Mutation", tabName = "mutation", icon = icon("seedling", style = "color: #9d52ff"), badgeLabel = " ", badgeColor = "red"),
+      menuItem("  .Pass Score", tabName = "pass", icon = icon("wind", style = "color: #9d52ff"), badgeLabel = " ", badgeColor = "red"),
       conditionalPanel(condition = "input.sidebar == 'single'",
-          selectInput("runSingle", "Choisissez un run :", listdir),
-          selectInput("geneSingle", "Choisissez un gène :", c()),
+          selectInput("runSingle", "Choose a run :", listdir),
+          selectInput("geneSingle", "Choose a  gene :", c()),
           numericInput("seuilPercU", "Minimal percentage of U :", value = 60),
-          actionButton("buttonValidationSingle", label = "Valider cette selection", icon = icon("check", style = "color: #1dcc1d"))
+          actionButton("buttonValidationSingle", label = "Confirm this selection", icon = icon("check", style = "color: #1dcc1d"))
       ),
       conditionalPanel(condition = "input.sidebar == 'multiple'",
-          selectInput("runMultiple", "Choisssez un run", listdir),
+          selectInput("runMultiple", "Choose a run", listdir),
           numericInput("seuilPercUMultiple", "Minimal percentage of U :", value = 60),
-          actionButton("buttonValidationMultiple", label = "Valider cette selection", icon = icon("check", style = "color: #1dcc1d"))
+          actionButton("buttonValidationMultiple", label = "Confirm this selection", icon = icon("check", style = "color: #1dcc1d"))
+      ),
+      conditionalPanel(condition = "input.sidebar == 'pass'",
+          selectInput("runPass", "Choose a run", listdir),
+          selectizeInput("choixGenotype", "Choose 2 genotypes", c(), multiple = TRUE, options = list(maxItems = 2)),
+          actionButton("ButtonValidationPass", label = "Confirm this selection", icon = icon("check", style = "color: #1dcc1d"))
       )
   )),
 #====== Body ======= 
@@ -46,16 +52,25 @@ ui <- dashboardPage(skin = "purple",
       ),
       
       tabItem(tabName = "multiple",
-        h1("Multiple Gene Overview"),
+        h1("Multiple Genes Overview"),
         tableOutput("tableStatReadsMultiple"),
         box(title = "Percentage of Uridylation :", status = "primary", solidHeader = TRUE, width = 12, plotOutput("uridylationPercentageMultiple"), downloadButton("downloadUridylPercMultiplePlot", "Download this plot")),
         box(title = "Number of U in the added tail :", status = "primary", solidHeader = TRUE, width = 12, plotOutput("uridylationNumberMultiple"), downloadButton("downloadUridylNumberMultiplePlot", "Download this plot")),
         box(title = "Poly(A) tail length distribution :", status = "primary", solidHeader = TRUE, width = 12, plotOutput("polyaDistributionMultiple"), radioButtons("plotTypeMultiple", "Change plot", c("Density plot", "Cumulativ plot", "Histogram plot"), selected = "Density plot"), downloadButton("downloadPolyaDistribMultiplePlot", "Download this plot")),
         box(title = "Poly(A) tail length distribution in uridylate mRNA", status = "primary", solidHeader = TRUE, width = 12, plotOutput("polyaDistributionUridylMultiple"), radioButtons("plotTypeUridylMultiple", "Change plot", c("Density plot", "Cumulativ plot", "Histogram plot"), selected = "Density plot"), downloadButton("downloadPolyaDistributionUridylMultiplePlot", "Download this plot")),
         p(".")
+      ),
+      
+      tabItem(tabName = "pass",
+        h1("PASS Score"),
+        p(""),
+        box(title = "Cumulativ poly(A) tail length plot :", status = "primary", solidHeader = TRUE, width = 12, plotOutput("cumulativPassPlot"), numericInput("passMin", "Lower poly(A) tail length limit for PASS Score", value = 10, min = 10, max = 200), numericInput("passMax", "Upper poly(A) tail length limit for PASS Score", value = 200, min = 10, max = 200)),
+        h5("It's important to choose the right limits for the PASS Score.", style = "color : #7c7f80"),
+        actionButton("buttonValidationPass2", " Calculate the PASS Score", icon = icon("volleyball", style = "color: #1dcc1d")),
+        tableOutput("tablePASSscore")
       )
     )
-  )
+  ) 
 )
 
 server <- function(input, output) { 
@@ -106,6 +121,40 @@ server <- function(input, output) {
   
   dfUridylMultipleReact = eventReactive(input$buttonValidationMultiple, {      #tableau modifié en ajoutant une colonne pour différencier les lignes uridylés des autres (selon le pourcentage d'input) et mais on garde tout le gène cette fois ci, c'est ce tableau qu'on utilisera après pour le multiple, ne se met à jour que lors de la validation des inputs
     dfUridylMultiple = bindCsvFilesMultipleReact()%>%mutate(uridyl = if_else(add_tail_pct_T>input$seuilPercUMultiple, "U", "/"))%>%mutate(x = ".")
+  })
+  
+  # - - - - -
+  
+  barcodeCorrespondancePassReact = reactive({
+    listBarcodeCorrespondancePass = list.files(paste0(PATHo, "/", input$runPass),full.names = TRUE, pattern = "^barcode_correspondance")
+    barcodeCorrespondancePass = read_tsv(listBarcodeCorrespondancePass, col_names = FALSE)%>%arrange(X1)
+    if (nrow(barcodeCorrespondancePass) == 1){         #si le tableau n'a que 1 colonne ça veut dire que dans le fichier de base barcode_correspondance on a le barcore et le genotype dans la même colonne donc on sépare
+      barcodeCorrespondancePass = barcodeCorrespondancePass%>%separate(X1, c("Barcode", "Genotype"))
+    }
+    else{  #sinon on les renomme juste
+      colnames(barcodeCorrespondancePass)[1] = "Barcode"
+      colnames(barcodeCorrespondancePass)[2] = "Genotype"
+    }
+    return(as.data.frame(barcodeCorrespondancePass))
+  })
+  
+  observeEvent(input$runPass, {
+    updateSelectizeInput(inputId = "choixGenotype", choices = barcodeCorrespondancePassReact()[, 2]) #mettre barcodeCorrespondancePass en reactive
+  })
+  
+  
+  PassbindCsvReact = reactive({
+    barcodeInput = barcodeCorrespondancePassReact() %>% filter(Genotype %in% input$choixGenotype)
+    PasslistCsv = list.files(paste0(PATH, "/", input$runPass, "/4_Tail"), full.names = FALSE, pattern = "csv$")
+    for (i in 1:length(PasslistCsv)){
+      if (substring(PasslistCsv[i],1, 9) %in% barcodeInput[, 1]){
+      }
+      else{
+        PasslistCsv = PasslistCsv[-i]
+      }
+    }
+    PassbindCsv = rbindlist(lapply(paste0(paste0(PATH, "/", input$runPass, "/4_Tail"), "/", PasslistCsv), fread), idcol = "barcode")
+    return(PassbindCsv)
   })
   
   
@@ -257,8 +306,9 @@ server <- function(input, output) {
   
 
     plotPolyaDistributionSingleReact = reactive({                 #Plot taille de la queue polyA (densité)
-      plotPolyaDistributionSingle = ggplot(dfUridylReact(), aes(x = polya_length, group = barcode, color = as.character(barcode))) + geom_density() + xlim(10, 200) +
-        scale_color_hue(name = "", labels = paste(listBarcodeReact())) +
+      plotPolyaDistributionSingle = ggplot(dfUridylReact(), aes(x = polya_length, group = barcode, color = as.character(barcode), alpha = 0, fill = as.character(barcode))) + geom_density() + xlim(10, 200) +
+        scale_fill_hue(name = "", labels = paste(listBarcodeReact())) +
+        guides(color = FALSE, alpha = FALSE) +
         xlab("PolyA tail length") + ylab("Density of distribution") +
         theme(legend.title = element_text(size = 14), legend.text = element_text(size = 10), legend.position = "bottom")
     })
@@ -297,8 +347,9 @@ server <- function(input, output) {
 # ===================== Plot Distribution des tailles de queues polyA des mRNA uridylés ==============    
     
     plotPolyaDistributionUridylSingleReact = reactive({                #Plot taille de la queue polyA (densité)
-      polyaDistributionUridylSingle = ggplot(dfUridylReact()%>%filter(uridyl == "U"), aes(x = polya_length, group = barcode, color = as.character(barcode))) + geom_density() + xlim(0, 200) +
-        scale_color_hue(name = "", labels = paste(listBarcodeReact())) +
+      polyaDistributionUridylSingle = ggplot(dfUridylReact()%>%filter(uridyl == "U"), aes(x = polya_length, group = barcode, color = as.character(barcode), alpha = 0, fill = as.character(barcode))) + geom_density() + xlim(0, 200) +
+        scale_fill_hue(name = "", labels = paste(listBarcodeReact())) +
+        guides(color = FALSE, alpha = FALSE) +
         xlab("PolyA tail length") + ylab("Density of distribution") +
         theme(legend.title = element_text(size = 14), legend.text = element_text(size = 10), legend.position = "bottom")
     })
@@ -469,8 +520,9 @@ server <- function(input, output) {
     
     
     plotPolyaDistributionMultipleReact = reactive({                 #Plot taille de la queue polyA (densité)
-      plotPolyaDistributionMultiple = ggplot(dfUridylMultipleReact(), aes(x = polya_length, group = barcode, color = as.character(barcode))) + geom_density() + xlim(10, 200) +
-        scale_color_hue(name = "", labels = paste(listBarcodeMultipleReact())) +
+      plotPolyaDistributionMultiple = ggplot(dfUridylMultipleReact(), aes(x = polya_length, group = barcode, color = as.character(barcode), alpha = 0, fill = as.character(barcode))) + geom_density() + xlim(10, 200) +
+        scale_fill_hue(name = "", labels = paste(listBarcodeMultipleReact())) +
+        guides(color = FALSE, alpha = FALSE) +
         xlab("PolyA tail length") + ylab("Density of distribution") +
         theme(legend.title = element_text(size = 14), legend.text = element_text(size = 10), legend.position = "bottom")
     })
@@ -509,8 +561,9 @@ server <- function(input, output) {
     # ===================== Plot Distribution des tailles de queues polyA des mRNA uridylés ==============    
     
     plotPolyaDistributionUridylMultipleReact = reactive({                #Plot taille de la queue polyA (densité)
-      polyaDistributionUridylMultiple = ggplot(dfUridylMultipleReact()%>%filter(uridyl == "U"), aes(x = polya_length, group = barcode, color = as.character(barcode))) + geom_density() + xlim(0, 200) +
-        scale_color_hue(name = "", labels = paste(listBarcodeMultipleReact())) +
+      polyaDistributionUridylMultiple = ggplot(dfUridylMultipleReact()%>%filter(uridyl == "U"), aes(x = polya_length, group = barcode, alpha = 0, color = as.character(barcode), fill = as.character(barcode))) + geom_density() + xlim(0, 200) +
+        scale_fill_hue(name = "", labels = paste(listBarcodeMultipleReact())) +
+        guides(color = FALSE, alpha = FALSE) +
         xlab("PolyA tail length") + ylab("Density of distribution") +
         theme(legend.title = element_text(size = 14), legend.text = element_text(size = 10), legend.position = "bottom")
     })
@@ -532,11 +585,89 @@ server <- function(input, output) {
         theme(legend.position="bottom") +
         xlab("Gene (split in different barcodes)") + ylab("Poly(A) tail length")
     })    
+ 
+#================================== PASS SCORE =========================================    
+
+  #===== Boutons Valider ============
     
+    reduiceBindCsvReact = eventReactive(input$ButtonValidationPass, {
+      reduiceBindCsv = subset(PassbindCsvReact(), select = c("chr", "mRNA", "barcode", "polya_length")) %>%
+        filter(chr != "ChrC", chr != "ChrM") %>%
+        filter(polya_length > 10) %>% #enlève les petites queues
+        mutate(genotype = barcodeCorrespondancePassReact()[barcode, 2]) %>%
+        mutate(barcode = barcodeCorrespondancePassReact()[barcode, 1])
+      
+      reduiceBindCsv$polya_length = as.numeric(reduiceBindCsv$polya_length)
+      
+      reduiceBindCsv$polya_length = round_any(reduiceBindCsv$polya_length, 1 ,f = ceiling)
+      
+      countGene = reduiceBindCsv %>% group_by(genotype, mRNA, .drop = FALSE) %>%
+        dplyr::summarise(geneNbr = n()) %>%
+        filter(geneNbr > 200) #enlève les gènes peut présents
+      
+      reduiceBindCsv = reduiceBindCsv %>% filter(mRNA %in% countGene$mRNA) %>%
+        filter(polya_length < 201) #enlève les grandes queues
+      
+      return(reduiceBindCsv)
+    })
+    
+    observeEvent(input$ButtonValidationPass, {
+      cum = reduiceBindCsvReact() %>% group_by(genotype, polya_length) %>%
+        dplyr::summarise(n = n()) %>%
+        group_by(genotype) %>%
+        dplyr::summarise(polya_length = polya_length, n = n, total = sum(n), cumSum = cumsum(n)/sum(n)) 
+      
+      output$cumulativPassPlot = renderPlot({
+        ggplot(cum) + 
+        geom_line(aes(x = polya_length, y=cumSum, color = genotype), alpha=0.8, size=0.6)+
+        theme(panel.spacing = unit(0.4, "lines")) +
+        theme ( plot.title = element_text(hjust = 0.5),
+                strip.background = element_blank(),
+                panel.background = element_blank(),
+                panel.grid.major = element_line(size = 0.2, linetype = 'dashed', colour = "gray70"),
+                panel.border = element_rect(colour="black",fill=NA,size=0.5),
+                axis.text.x = element_text(size=10, angle=90, hjust = 1, vjust = 0.5),
+                strip.text.x = element_text(size=8, face="bold")) +
+        scale_x_continuous(limits=c(1,200), breaks=seq(0,200,by=10)) +
+        scale_y_continuous(limits=c(0,1), breaks=seq(0,1,by=0.25)) +
+        scale_fill_manual(values = c("#E67E30", "gray40"))+
+        scale_color_manual(values = c("#E67E30", "gray40")) +
+        ylab("Cumulative ratio")
+     })
+    })
+    
+    observeEvent(input$buttonValidationPass2, {
+      
+      dataframePASS = reduiceBindCsvReact()
+      dataframePASS = dataframePASS %>% filter(polya_length > input$passMin & polya_length < input$passMax)
+      
+      dataframePASS$mRNA = as.factor(dataframePASS$mRNA)
+      dataframePASS$genotype = as.factor(dataframePASS$genotype)
+      dataframePASS$polya_length = as.factor(dataframePASS$polya_length)
+      
+      dataframePASS = dataframePASS %>% group_by(genotype, polya_length, mRNA, .drop = FALSE) %>%
+        dplyr::summarise(n = n()) %>%
+        group_by(genotype, mRNA) %>%
+        dplyr::summarise(genotype = genotype, mRNA = mRNA, polya_length = polya_length, n = n, ratio  = n/sum(n))
+      
+      dataframePASS = dataframePASS %>% group_by(mRNA, genotype) %>%
+        dplyr::summarise(genotype = genotype, mRNA = mRNA, polya_length = polya_length, n = n, ratio = ratio, cumSum = cumsum(ratio))
+      
+      dataframePASS$polya_length = as.numeric(dataframePASS$polya_length)
+      
+      dataframePASS = reshape2::dcast(dataframePASS, mRNA + polya_length ~ genotype, value.var = "cumSum") 
+      
+      soustrationPASS = dataframePASS[, 4] - dataframePASS[, 3]
+      dataframePASS = dataframePASS %>% mutate(PASS = soustrationPASS)
+      dataframePASS = dataframePASS %>% group_by(mRNA) %>%
+        dplyr::summarise(PASScore = sum(PASS))
+      
+      output$tablePASSscore = renderTable(dataframePASS)
+      })
     
 }
 
-shinyApp(ui, server)
+shinyApp(ui, server)                      
 
 
 
@@ -557,3 +688,6 @@ shinyApp(ui, server)
     #ylim(0, 50) 
 #})  
 # 
+
+
+
