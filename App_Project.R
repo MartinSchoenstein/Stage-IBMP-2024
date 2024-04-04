@@ -5,7 +5,7 @@ barcodeCorrespondancePass = c("")
 
 ui <- dashboardPage(skin = "purple",
   
-  dashboardHeader(title = "PASS pore"
+  dashboardHeader(title = "PASS Pore"
     
   ),
 #========= Sidebar ===========
@@ -14,7 +14,7 @@ ui <- dashboardPage(skin = "purple",
       menuItem("", tabName = "home", icon = icon("home", style = "color: #9d52ff")),
       menuItem("  .Single Gene Overview", tabName = "single", icon = icon("play", style = "color: #9d52ff")) ,
       menuItem("  .Multiple Genes Overview", tabName = "multiple", icon = icon("forward", style = "color: #9d52ff")) ,
-      menuItem("  .Pass Score", tabName = "pass", icon = icon("wind", style = "color: #9d52ff"), badgeLabel = " ", badgeColor = "red"),
+      menuItem("  .Pass Score", tabName = "pass", icon = icon("code", style = "color: #9d52ff")),
       conditionalPanel(condition = "input.sidebar == 'single'",
           selectInput("runSingle", "Choose a run :", listdir),
           selectInput("geneSingle", "Choose a  gene :", c()),
@@ -66,7 +66,7 @@ ui <- dashboardPage(skin = "purple",
         p(""),
         box(title = "Cumulativ poly(A) tail length plot :", status = "primary", solidHeader = TRUE, width = 12, plotOutput("cumulativPassPlot"), numericInput("passMin", "Lower poly(A) tail length limit for PASS Score", value = 10, min = 10, max = 200), numericInput("passMax", "Upper poly(A) tail length limit for PASS Score", value = 200, min = 10, max = 200)),
         h5("It's important to choose the right limits for the PASS Score.", style = "color : #7c7f80"),
-        actionButton("buttonValidationPass2", " Calculate the PASS Score", icon = icon("volleyball", style = "color: #1dcc1d")),
+        actionButton("buttonValidationPass2", "  Calculate the PASS Score", icon = icon("volleyball", style = "color: #1dcc1d")),
         tableOutput("tablePASSscore")
       )
     )
@@ -128,7 +128,7 @@ server <- function(input, output) {
   barcodeCorrespondancePassReact = reactive({
     listBarcodeCorrespondancePass = list.files(paste0(PATHo, "/", input$runPass),full.names = TRUE, pattern = "^barcode_correspondance")
     barcodeCorrespondancePass = read_tsv(listBarcodeCorrespondancePass, col_names = FALSE)%>%arrange(X1)
-    if (nrow(barcodeCorrespondancePass) == 1){         #si le tableau n'a que 1 colonne ça veut dire que dans le fichier de base barcode_correspondance on a le barcore et le genotype dans la même colonne donc on sépare
+    if (length(barcodeCorrespondancePass) == 1){         #si le tableau n'a que 1 colonne ça veut dire que dans le fichier de base barcode_correspondance on a le barcore et le genotype dans la même colonne donc on sépare
       barcodeCorrespondancePass = barcodeCorrespondancePass%>%separate(X1, c("Barcode", "Genotype"))
     }
     else{  #sinon on les renomme juste
@@ -145,15 +145,16 @@ server <- function(input, output) {
   
   PassbindCsvReact = reactive({
     barcodeInput = barcodeCorrespondancePassReact() %>% filter(Genotype %in% input$choixGenotype)
+    RightPasslistCsv = c()
     PasslistCsv = list.files(paste0(PATH, "/", input$runPass, "/4_Tail"), full.names = FALSE, pattern = "csv$")
     for (i in 1:length(PasslistCsv)){
-      if (substring(PasslistCsv[i],1, 9) %in% barcodeInput[, 1]){
+      for (l in 1:length(barcodeInput[, 1])){
+        if (substring(PasslistCsv[i],1, 9) == barcodeInput[l, 1]){
+          RightPasslistCsv = append(RightPasslistCsv, PasslistCsv[i])
+          }
+        }
       }
-      else{
-        PasslistCsv = PasslistCsv[-i]
-      }
-    }
-    PassbindCsv = rbindlist(lapply(paste0(paste0(PATH, "/", input$runPass, "/4_Tail"), "/", PasslistCsv), fread), idcol = "barcode")
+    PassbindCsv = rbindlist(lapply(paste0(paste0(PATH, "/", input$runPass, "/4_Tail"), "/", RightPasslistCsv), fread), idcol = "barcode")
     return(PassbindCsv)
   })
   
@@ -591,11 +592,12 @@ server <- function(input, output) {
   #===== Boutons Valider ============
     
     reduiceBindCsvReact = eventReactive(input$ButtonValidationPass, {
+      barcodeInput = barcodeCorrespondancePassReact() %>% filter(Genotype %in% input$choixGenotype)
       reduiceBindCsv = subset(PassbindCsvReact(), select = c("chr", "mRNA", "barcode", "polya_length")) %>%
         filter(chr != "ChrC", chr != "ChrM") %>%
         filter(polya_length > 10) %>% #enlève les petites queues
-        mutate(genotype = barcodeCorrespondancePassReact()[barcode, 2]) %>%
-        mutate(barcode = barcodeCorrespondancePassReact()[barcode, 1])
+        mutate(genotype = barcodeInput[barcode, 2]) %>%
+        mutate(barcode = barcodeInput[barcode, 1])
       
       reduiceBindCsv$polya_length = as.numeric(reduiceBindCsv$polya_length)
       
@@ -662,7 +664,7 @@ server <- function(input, output) {
       dataframePASS = dataframePASS %>% group_by(mRNA) %>%
         dplyr::summarise(PASScore = sum(PASS))
       
-      output$tablePASSscore = renderTable(dataframePASS)
+      output$tablePASSscore = renderTable(dataframePASS %>% arrange(desc(PASScore)))
       })
     
 }
